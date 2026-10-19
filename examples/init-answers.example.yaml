@@ -1,0 +1,34 @@
+# Non-interactive answers for `python run.py init --answers ...` (what an AI agent fills in
+# after asking the user the questions in docs/agent-onboarding.md). All values are FAKE.
+template: local-life-chain
+timezone: Asia/Shanghai
+stores: A店, B店, C店
+people: 员工甲, 员工乙
+crm_type: crm-csv
+crm_name: 示例CRM
+crm_path: exports/crm_{date}.csv
+crm_col_channel: 获客渠道
+crm_col_store: 门店
+crm_col_owner: 创建人
+crm_col_first_contact: 首次咨询时间
+crm_col_created: 创建时间
+crm_col_visit: 到店时间
+crm_col_contact: 手机号
+source_count: 2
+sources:
+  - {name: 点评类平台, id: review, ingest: browser-manual, group_by: stores, kinds: "phone:电话数,chat:后台咨询数", crm_channels: 点评类平台}
+  - {name: 社媒平台, id: social, ingest: csv, group_by: people, kinds: 留资数, crm_channels: 社媒平台}
+want_reconcile: y
+verification_name: 团购平台
+date_attribution: first_contact
+day_start: "00:00"
+dedupe: day
+required_fields: channel,group
+on_failure: hold
+morning_time: "09:00"
+evening_time: "21:00"
+recipient_count: 3
+recipients:
+  - {name: 运营负责人, channel: feishu, target_kind: dm, reports: "morning,evening,alerts", format: image, evidence: y}
+  - {name: 门店群, channel: dingtalk, target_kind: group, reports: evening, format: image+text, evidence: n}
+  - {name: 老板, channel: wechat, target_kind: dm, reports: morning, format: image, evidence: n}

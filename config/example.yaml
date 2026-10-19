@@ -1,0 +1,219 @@
+# =====================================================================================
+# lead-report-workflow — 完整注释版配置（所有名称均为示例）
+#   线索来源平台（N 个）──┐
+#                        ├─> 归一化 -> 口径(去重/归属日/有效性) -> 按 日期×分组×渠道 计数
+#   CRM（客户记录，1 个）──┘                  -> 对账：未填 = max(平台 − CRM, 0) -> 红色高亮 -> PNG
+#   -> 按接收人路由（各自的平台/私聊或群/报表/格式/是否附证据）
+# 密钥一律写环境变量名（*_env 或 ${VAR}），不要写值。
+# =====================================================================================
+timezone: Asia/Shanghai                # 切日、早晚报时间都按这个时区
+
+# ---------- 分组：门店 / 人员 / 团队 / 店铺…（报表的行） ----------
+groups:
+  stores:
+    - {id: s1, name: 一号店, aliases: [一店, Store-1]}   # 平台/CRM 里的不同写法都写进 aliases
+    - {id: s2, name: 二号店, aliases: [二店]}
+  people:
+    - {id: p1, name: 顾问A}
+    - {id: p2, name: 顾问B}
+
+# ---------- 来源：任意平台 + 一个 CRM ----------
+# type: api | csv | browser-manual | webhook | crm-csv | crm-sql | custom
+# role: leads | crm | verification | response_time
+sources:
+  - id: crm
+    name: CRM
+    type: crm-csv                      # 任何 CRM 的导出（多维表格/Salesforce/HubSpot/Excel…）
+    role: crm
+    path: exports/crm_{date}.xlsx      # 占位符 {date} {yyyymmdd} {month} {period_start} {base_dir}
+    max_age_minutes: 120               # 实时重拉：导出文件超过 2 小时视为过期，拒绝出报表
+    field_map:                         # 规范字段 -> 你的列名
+      channel: 获客渠道
+      contact: 手机号                   # 可选；用于逐条匹配，只保存哈希、永不出图
+      id: 客户编号
+    group_fields: {stores: 门店, people: 创建人}   # 不同报表按不同列分组
+    time_fields:                       # 归属日期可选字段，由 metrics.date_attribution 选择
+      first_contact: 首次咨询时间
+      created: 创建时间
+      visit: 到店时间
+
+  - id: platform_api                   # 有官方 API 的平台
+    name: 平台甲
+    type: api
+    role: leads
+    group_by: stores
+    url: https://api.example.com/v1/leads
+    method: GET
+    params: {date: "{date}", page_size: 100}
+    headers: {Authorization: "Bearer ${PLATFORM_A_TOKEN}"}
+    records_path: data.items
+    pagination: {type: cursor, cursor_param: cursor, next_path: data.next_cursor, max_pages: 50}
+    auth_fail_status: [401, 403]
+    field_map: {group: shop.name, time: created_at, kind: type, contact: phone, id: id}
+
+  - id: platform_export                # 只能导出文件的平台
+    name: 平台乙
+    type: csv
+    role: leads
+    group_by: people
+    path: exports/platform_b_{date}.csv
+    max_age_minutes: 120
+    default_kind: dm
+    field_map: {group: 负责人, time: 留资时间, contact: 联系方式}
+    filters: [{field: 状态, op: not_in, value: [测试, 无效]}]
+
+  - id: platform_browser               # 无 API、无导出：浏览器辅助人工读数（只看不改）
+    name: 平台丙
+    type: browser-manual
+    role: leads
+    group_by: stores
+    capture_dir: captures/{source_id}  # 每天一个 YAML，见 examples/manual-capture.template.yaml
+    max_age_minutes: 90
+    on_auth_fail_hint: 请扫码登录平台丙商家后台后重跑
+
+  - id: platform_webhook               # 平台主动推送
+    name: 表单
+    type: webhook
+    role: leads
+    group_by: stores
+    path: inbox/form_leads.jsonl
+    field_map: {group: store, time: submitted_at, contact: phone}
+
+  - id: vouchers                       # 核销 / 验券 / 签到 —— 与 CRM 到店对账
+    name: 团购平台
+    type: csv
+    role: verification
+    group_by: stores
+    path: exports/vouchers_{month}.csv
+    max_age_minutes: 120
+    field_map: {group: 门店, time: 核销时间}
+
+  - id: cs_response                    # 客服响应时长
+    name: 客服后台
+    type: csv
+    role: response_time
+    group_by: stores
+    path: exports/cs_{date}.csv
+    max_age_minutes: 120
+    field_map: {group: 门店, time: 日期, agent: 客服, avg_seconds: 平均响应秒数, consults: 咨询人数}
+
+  # - id: my_crm_api                   # 自写适配器（见 docs/platforms.md）
+  #   type: custom
+  #   class: my_adapters.hubspot:HubSpotCrm
+  #   role: crm
+
+# ---------- 口径 ----------
+metrics:
+  date_attribution: first_contact      # first_contact | created —— 按首次咨询日归属（推荐）
+  day_window: {start: "00:00"}         # 切日时间；夜间营业可设 "04:00"
+  dedupe: {scope: day}                 # day: 同一联系方式同来源同分组一天只算 1 次 | window | none
+  contact_salt: ""                     # 联系方式哈希盐（可选）
+  valid_lead:
+    filters:                           # 对所有 leads 来源生效；op: eq ne in not_in contains not_contains gte lte empty
+      - {field: is_test, op: ne, value: "true"}
+  required_fields: [channel, group]    # CRM 行缺这些字段 -> 不算已填，脚注提示
+  on_source_failure: hold              # hold: 相关报表暂停并告警 | send_with_dash: 照发，缺数显示 —
+
+# ---------- 报表 ----------
+reports:
+  - id: fill_platform_api
+    type: fill_gap                     # 平台客资 vs CRM 已填
+    source: platform_api
+    crm_source: crm
+    crm_channels: [平台甲]              # CRM 渠道列的取值，精确匹配
+    group_by: stores
+    group_label: 门店
+    title: "{date_label} {source_name} 客资填写情况"
+    header_color: "#E67828"
+    columns:                           # 平台客资按类型拆列；未填 = max(各列之和 − 已填, 0)
+      - {kinds: [phone], label: 电话数}
+      - {kinds: [chat], label: 后台咨询数}
+    total_row: true
+    record_match: true                 # 额外按联系方式逐条匹配，输出“未匹配”列
+    record_match_window_days: 3
+  - id: fill_platform_export
+    type: fill_gap
+    source: platform_export
+    crm_source: crm
+    crm_channels: [平台乙]
+    group_by: people
+    group_label: 负责人
+    columns: [{label: 留资数}]
+  - id: fill_platform_browser
+    type: fill_gap
+    source: platform_browser
+    crm_source: crm
+    crm_channels: [平台丙]
+    group_by: stores
+    group_label: 门店
+    columns: [{label: 客资数}]
+  - id: reconcile_visits
+    type: verification_vs_visit        # 当月累计：按分组 / 按日 / 日×分组矩阵（两格同红）
+    verification_source: vouchers
+    crm_source: crm
+    group_by: stores
+    group_label: 门店
+    visit_time_field: visit
+    verification_label: 核销
+    visit_label: 到店
+  - id: response_time
+    type: response_time
+    source: cs_response
+    group_by: stores
+    group_label: 门店
+    threshold_seconds: 180             # 超过 3 分钟标红
+
+# ---------- 时段 ----------
+schedules:
+  morning:                             # 早上复核昨天（数据最全），并发核销对账、响应时长
+    cron: "0 9 * * *"
+    data_day: yesterday
+    period_start: month_start          # month_start | 7d | YYYY-MM-DD
+    caption: 客资填写复核（昨日）
+    reports: [fill_platform_api, fill_platform_export, fill_platform_browser, response_time, reconcile_visits]
+  evening:                             # 晚上看当天，提醒当天补填
+    cron: "0 21 * * *"
+    data_day: today
+    caption: 客资填写情况（今日）
+    reports: [fill_platform_api, fill_platform_export, fill_platform_browser]
+
+# ---------- 接收人（逐个询问后填写；每人独立的渠道/对象/报表/格式/证据） ----------
+# channel.type: feishu | lark | wecom_bot | dingtalk | wechat | slack | teams | telegram | email | webhook | agent_outbox | custom
+# reports: 时段名 + 可选 alerts（取数失败/登录失效提醒）
+# format: image（只发图，默认） | image+text | file
+recipients:
+  - id: manager
+    name: 运营负责人
+    target_kind: dm
+    channel: {type: feishu, app_id_env: FEISHU_APP_ID, app_secret_env: FEISHU_APP_SECRET,
+              receive_id_type: open_id, receive_id_env: FEISHU_MANAGER_OPEN_ID}
+    reports: [morning, evening, alerts]
+    format: image
+    evidence: true                     # 有差额时附平台证据截图
+  - id: store_group
+    name: 门店群
+    target_kind: group
+    channel: {type: wecom_bot, webhook_env: WECOM_STORE_GROUP_WEBHOOK}
+    reports: [evening]
+    report_ids: [fill_platform_api, fill_platform_browser]   # 可选：只收部分报表
+    format: image+text
+    evidence: false
+  - id: owner
+    name: 负责人
+    target_kind: dm
+    channel: {type: wechat}            # 无官方机器人 API -> 写入 outbox，由 AI 助手/人工代发
+    reports: [morning]
+    format: image
+  - id: global_team
+    name: Global team
+    target_kind: group
+    channel: {type: slack, token_env: SLACK_BOT_TOKEN, channel_env: SLACK_CHANNEL_ID}
+    reports: [morning, alerts]
+    format: image+text
+
+outputs:
+  dir: runs                            # 每次运行：runs/<run_id>/*.png + manifest.json + outbox/
+  dpi: 160
+  font:
+    family: Noto Sans CJK SC           # macOS: PingFang SC；Windows: Microsoft YaHei
+    path: null                         # 或指定字体文件

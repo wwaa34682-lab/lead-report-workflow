@@ -1,0 +1,17 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q tests
+      - run: |
+          for f in config/example.yaml config/templates/*.yaml examples/demo.yaml; do python run.py validate --config "$f"; done
+      - run: python run.py demo
+      - uses: actions/upload-artifact@v4
+        with: {name: demo-images, path: examples/runs/**/*.png}

@@ -1,0 +1,24 @@
+# 浏览器辅助人工读数 模板（browser-manual 来源）
+# 保存为 captures/<source_id>/<YYYY-MM-DD>.yaml（日期 = 报表的数据日）
+# 原则：只看不改 —— 只浏览和截图，不回复、不编辑、不导出到第三方、不改任何设置。
+fetched_at: 2026-01-01T09:05:00+08:00   # 本次实际打开页面读数的时间；超过 max_age_minutes 会被拒绝（实时重拉）
+captured_by: agent                       # agent | 人名/角色
+status: ok                               # ok | auth_failed（登录/扫码失效时填，并写 message）
+message: ""
+page: "商家后台 > 客资管理 > 客资列表"      # 读数页面的菜单路径；不要贴带 token 的 URL
+
+# A) 页面只给汇总数字时：每个分组、每种客资类型一行
+counts:
+  - {group: 一号店, kind: phone, count: 2}
+  - {group: 一号店, kind: chat, count: 1}
+  - {group: 二号店, kind: phone, count: 0}
+
+# B) 页面能看到明细时：逐条记录（可做按联系方式逐条匹配）。核销/响应时长来源也用这里。
+records: []
+#  - {group: 一号店, kind: chat, time: "2026-01-01T10:12:00+08:00", contact: "<平台用户ID或手机号>"}
+#  - {group: 一号店, time: "2026-01-01T15:00:00+08:00"}                         # role: verification
+#  - {group: 一号店, time: "2026-01-01", agent: 客服1, avg_seconds: 75, consults: 9} # role: response_time
+
+# 证据截图：任一分组出现差额（未填>0）时必须有。截图前遮挡手机号等个人信息。
+evidence:
+  一号店: [evidence/<source_id>/2026-01-01-一号店-list.png]

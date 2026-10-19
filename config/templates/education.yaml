@@ -1,0 +1,47 @@
+# 模板：教育培训 —— 广告/社媒/地图/官网的咨询 -> 课程顾问在 CRM 建档；试听课签到 vs CRM 到访
+timezone: Asia/Shanghai
+groups:
+  campuses:
+    - {id: c1, name: 东校区, aliases: []}
+    - {id: c2, name: 西校区, aliases: []}
+  advisors:
+    - {id: a1, name: 顾问A}
+    - {id: a2, name: 顾问B}
+sources:
+  - {id: crm, name: CRM, type: crm-csv, role: crm, path: "exports/crm_{date}.csv", max_age_minutes: 120,
+     field_map: {channel: 线索来源, contact: 家长手机}, group_fields: {campuses: 校区, advisors: 课程顾问},
+     time_fields: {first_contact: 首次咨询时间, created: 建档时间, visit: 试听到访时间}}
+  - {id: ads, name: 信息流广告, type: api, role: leads, group_by: campuses, url: https://api.example.com/ads/leads,
+     params: {start: "{date}", end: "{date}"}, headers: {Authorization: "Bearer ${ADS_TOKEN}"}, records_path: data,
+     field_map: {group: campus, time: create_time, contact: phone}}
+  - {id: social, name: 社媒私信, type: browser-manual, role: leads, group_by: advisors, capture_dir: "captures/{source_id}", max_age_minutes: 90}
+  - {id: website, name: 官网表单, type: webhook, role: leads, group_by: campuses, path: inbox/website.jsonl,
+     field_map: {group: campus, time: submitted_at, contact: phone}}
+  - {id: checkin, name: 试听签到, type: csv, role: verification, group_by: campuses, path: "exports/checkin_{month}.csv", max_age_minutes: 120,
+     field_map: {group: 校区, time: 签到时间}}
+metrics:
+  date_attribution: first_contact
+  day_window: {start: "00:00"}
+  dedupe: {scope: day}
+  required_fields: [channel, group]
+  valid_lead:
+    filters: [{field: 年级, op: ne, value: 成人}]
+  on_source_failure: hold
+reports:
+  - {id: fill_ads, type: fill_gap, source: ads, crm_source: crm, crm_channels: [信息流广告], group_by: campuses, group_label: 校区,
+     columns: [{label: 线索数}], record_match: true}
+  - {id: fill_social, type: fill_gap, source: social, crm_source: crm, crm_channels: [社媒私信], group_by: advisors, group_label: 顾问,
+     columns: [{label: 留资数}]}
+  - {id: fill_website, type: fill_gap, source: website, crm_source: crm, crm_channels: [官网表单], group_by: campuses, group_label: 校区,
+     columns: [{label: 表单数}]}
+  - {id: reconcile_trial, type: verification_vs_visit, verification_source: checkin, crm_source: crm, group_by: campuses, group_label: 校区,
+     visit_time_field: visit, verification_label: 签到, visit_label: 到访}
+schedules:
+  morning: {cron: "0 9 * * *", data_day: yesterday, reports: [fill_ads, fill_social, fill_website, reconcile_trial]}
+  evening: {cron: "30 20 * * *", data_day: today, reports: [fill_ads, fill_social, fill_website]}
+recipients:
+  - {id: principal, name: 校长, target_kind: dm, reports: [morning], format: image,
+     channel: {type: wecom_bot, webhook_env: WECOM_PRINCIPAL_WEBHOOK}}
+  - {id: advisors, name: 顾问群, target_kind: group, reports: [evening, alerts], format: image+text, evidence: true,
+     channel: {type: telegram, token_env: TELEGRAM_BOT_TOKEN, chat_id_env: TELEGRAM_ADVISORS_CHAT_ID}}
+outputs: {dir: runs, dpi: 160, font: {family: Noto Sans CJK SC}}

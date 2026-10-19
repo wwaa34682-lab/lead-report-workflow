@@ -1,0 +1,43 @@
+# 模板：本地生活连锁门店（点评/团购类、地图类、社媒私信、电话；核销 vs 到店；客服响应）
+# 平台名都是占位，请改成你实际使用的平台；CRM 渠道取值必须与 CRM 里完全一致。
+timezone: Asia/Shanghai
+groups:
+  stores:
+    - {id: s1, name: 一号店, aliases: []}
+    - {id: s2, name: 二号店, aliases: []}
+  people:
+    - {id: p1, name: 运营A}
+sources:
+  - {id: crm, name: CRM, type: crm-csv, role: crm, path: "exports/crm_{date}.xlsx", max_age_minutes: 120,
+     field_map: {channel: 获客渠道, contact: 手机号}, group_fields: {stores: 门店, people: 创建人},
+     time_fields: {first_contact: 首次咨询时间, created: 创建时间, visit: 到店时间}}
+  - {id: review, name: 点评团购平台, type: browser-manual, role: leads, group_by: stores, capture_dir: "captures/{source_id}", max_age_minutes: 90}
+  - {id: maps, name: 地图平台, type: browser-manual, role: leads, group_by: stores, capture_dir: "captures/{source_id}", max_age_minutes: 90}
+  - {id: social, name: 社媒平台, type: csv, role: leads, group_by: people, path: "exports/social_{date}.csv", max_age_minutes: 120,
+     field_map: {group: 负责人, time: 留资时间, contact: 联系方式}}
+  - {id: vouchers, name: 点评团购平台核销, type: browser-manual, role: verification, group_by: stores, capture_dir: "captures/{source_id}", max_age_minutes: 90}
+  - {id: cs, name: 点评团购平台客服, type: browser-manual, role: response_time, group_by: stores, capture_dir: "captures/{source_id}", max_age_minutes: 90}
+metrics:
+  date_attribution: first_contact
+  day_window: {start: "00:00"}
+  dedupe: {scope: day}
+  required_fields: [channel, group]
+  valid_lead: {filters: []}
+  on_source_failure: hold
+reports:
+  - {id: fill_review, type: fill_gap, source: review, crm_source: crm, crm_channels: [点评团购平台], group_by: stores, group_label: 门店,
+     header_color: "#E67828", columns: [{kinds: [phone], label: 电话数}, {kinds: [chat], label: 后台咨询数}]}
+  - {id: fill_maps, type: fill_gap, source: maps, crm_source: crm, crm_channels: [地图平台], group_by: stores, group_label: 门店, columns: [{label: 客资数}]}
+  - {id: fill_social, type: fill_gap, source: social, crm_source: crm, crm_channels: [社媒平台], group_by: people, group_label: 负责人,
+     header_color: "#C82828", columns: [{label: 留资数}]}
+  - {id: reconcile_visits, type: verification_vs_visit, verification_source: vouchers, crm_source: crm, group_by: stores, group_label: 门店,
+     visit_time_field: visit, verification_label: 核销, visit_label: 到店}
+  - {id: response_time, type: response_time, source: cs, group_by: stores, group_label: 门店, threshold_seconds: 180}
+schedules:
+  morning: {cron: "0 9 * * *", data_day: yesterday, caption: 客资填写复核（昨日）,
+            reports: [fill_social, fill_review, fill_maps, response_time, reconcile_visits]}
+  evening: {cron: "0 21 * * *", data_day: today, caption: 客资填写情况（今日）, reports: [fill_social, fill_review, fill_maps]}
+recipients:
+  - {id: manager, name: 运营负责人, target_kind: dm, reports: [morning, evening, alerts], format: image, evidence: true,
+     channel: {type: feishu, app_id_env: FEISHU_APP_ID, app_secret_env: FEISHU_APP_SECRET, receive_id_type: open_id, receive_id_env: FEISHU_MANAGER_OPEN_ID}}
+outputs: {dir: runs, dpi: 160, font: {family: Noto Sans CJK SC}}

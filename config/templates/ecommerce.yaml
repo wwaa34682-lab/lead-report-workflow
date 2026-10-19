@@ -1,0 +1,43 @@
+# 模板：电商 / 店铺客服 —— 各电商平台/直播/广告表单的咨询与留资，对照 CRM（或私域表格）录入情况
+timezone: Asia/Shanghai
+groups:
+  shops:
+    - {id: shop1, name: 旗舰店, aliases: []}
+    - {id: shop2, name: 专营店, aliases: []}
+  agents:
+    - {id: a1, name: 客服1}
+    - {id: a2, name: 客服2}
+sources:
+  - {id: crm, name: CRM, type: crm-csv, role: crm, path: "exports/crm_{date}.csv", max_age_minutes: 120,
+     field_map: {channel: 来源渠道, contact: 买家ID}, group_fields: {shops: 店铺, agents: 跟进人},
+     time_fields: {first_contact: 首次咨询时间, created: 录入时间}}
+  - {id: marketplace, name: 电商平台, type: api, role: leads, group_by: shops, url: https://api.example.com/marketplace/consultations,
+     params: {date: "{date}"}, headers: {Authorization: "Bearer ${MARKETPLACE_TOKEN}"}, records_path: data.list,
+     field_map: {group: shop_name, time: first_msg_time, kind: type, contact: buyer_id}}
+  - {id: live, name: 直播平台, type: csv, role: leads, group_by: shops, path: "exports/live_leads_{date}.csv", max_age_minutes: 120,
+     field_map: {group: 店铺, time: 留资时间, contact: 手机号}}
+  - {id: ads_form, name: 广告表单, type: webhook, role: leads, group_by: shops, path: inbox/ads_form.jsonl,
+     field_map: {group: shop, time: created_time, contact: phone}}
+  - {id: cs, name: 客服工作台, type: csv, role: response_time, group_by: agents, path: "exports/cs_{date}.csv", max_age_minutes: 120,
+     field_map: {group: 客服, time: 日期, agent: 客服, avg_seconds: 首响秒数, consults: 接待人数}}
+metrics:
+  date_attribution: first_contact
+  day_window: {start: "00:00"}
+  dedupe: {scope: day}
+  required_fields: [channel, group]
+  valid_lead:
+    filters: [{field: is_robot, op: ne, value: "1"}]
+  on_source_failure: hold
+reports:
+  - {id: fill_marketplace, type: fill_gap, source: marketplace, crm_source: crm, crm_channels: [电商平台], group_by: shops, group_label: 店铺,
+     columns: [{kinds: [presale], label: 售前咨询}, {kinds: [leave_phone], label: 留电}], record_match: true}
+  - {id: fill_live, type: fill_gap, source: live, crm_source: crm, crm_channels: [直播平台], group_by: shops, group_label: 店铺, columns: [{label: 留资数}]}
+  - {id: fill_ads, type: fill_gap, source: ads_form, crm_source: crm, crm_channels: [广告表单], group_by: shops, group_label: 店铺, columns: [{label: 表单数}]}
+  - {id: response_time, type: response_time, source: cs, group_by: agents, group_label: 客服, threshold_seconds: 60}
+schedules:
+  morning: {cron: "30 9 * * *", data_day: yesterday, reports: [fill_marketplace, fill_live, fill_ads, response_time]}
+  evening: {cron: "0 22 * * *", data_day: today, reports: [fill_marketplace, fill_live, fill_ads]}
+recipients:
+  - {id: ops, name: 电商运营, target_kind: group, reports: [morning, evening, alerts], format: image+text, evidence: true,
+     channel: {type: dingtalk, webhook_env: DINGTALK_OPS_WEBHOOK, image_base_url: "https://static.example.com/lead-reports"}}
+outputs: {dir: runs, dpi: 160, font: {family: Noto Sans CJK SC}}

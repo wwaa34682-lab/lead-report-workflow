@@ -1,0 +1,5 @@
+matplotlib>=3.8
+PyYAML>=6.0
+# optional:
+# openpyxl>=3.1      # read .xlsx exports
+# sqlalchemy>=2.0    # crm-sql adapter (+ your DB driver)

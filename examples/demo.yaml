@@ -1,0 +1,202 @@
+# Demo config — every name, platform and number here is FAKE.
+# Run:  python run.py demo      (renders into examples/runs/<run_id>/, nothing is sent)
+timezone: Asia/Shanghai
+
+groups:
+  stores:
+    - {id: a, name: A店, aliases: [A门店, 一号店]}
+    - {id: b, name: B店, aliases: [B门店]}
+    - {id: c, name: C店}
+    - {id: d, name: D店}
+    - {id: e, name: E店}
+  people:
+    - {id: p1, name: 员工甲}
+    - {id: p2, name: 员工乙}
+    - {id: p3, name: 员工丙}
+    - {id: p4, name: 员工丁}
+
+sources:
+  - id: crm
+    name: 示例CRM
+    type: crm-csv
+    role: crm
+    path: data/crm_export.csv
+    max_age_minutes: 1440
+    field_map: {channel: 获客渠道, contact: 手机号, id: 客户编号}
+    group_fields: {stores: 门店, people: 创建人}
+    time_fields: {first_contact: 首次咨询时间, created: 创建时间, visit: 到店时间}
+
+  - id: social_x                     # export file, grouped by person
+    name: 社媒平台X
+    type: csv
+    role: leads
+    group_by: people
+    path: data/social_x_leads.csv
+    max_age_minutes: 1440
+    default_kind: dm
+    field_map: {group: owner, time: created_at, contact: contact, id: lead_id}
+    filters: [{field: status, op: ne, value: test}]
+
+  - id: review_y                     # official API (file:// here so the demo runs offline)
+    name: 点评类平台Y
+    type: api
+    role: leads
+    group_by: stores
+    url: file://{base_dir}/data/review_y_api.json
+    records_path: data.items
+    pagination: {type: cursor, cursor_param: cursor, next_path: data.next_cursor, max_pages: 20}
+    headers: {Authorization: "Bearer ${REVIEW_Y_TOKEN:-demo}"}
+    field_map: {group: shop.name, time: created_at, kind: type, contact: mobile, id: id}
+
+  - id: map_z                        # no API -> browser-assisted manual capture
+    name: 地图平台Z
+    type: browser-manual
+    role: leads
+    group_by: stores
+    capture_dir: captures/{source_id}
+    max_age_minutes: 90
+    on_auth_fail_hint: 请扫码登录地图平台Z商家后台后重跑
+
+  - id: form_web                     # webhook push
+    name: 官网表单
+    type: webhook
+    role: leads
+    group_by: stores
+    path: data/form_leads.jsonl
+    default_kind: form
+    field_map: {group: store, time: submitted_at, contact: phone}
+
+  - id: vouchers
+    name: 团购平台
+    type: csv
+    role: verification
+    group_by: stores
+    path: data/vouchers.csv
+    max_age_minutes: 1440
+    field_map: {group: store, time: verified_at}
+
+  - id: cs
+    name: 点评类平台Y客服
+    type: csv
+    role: response_time
+    group_by: stores
+    path: data/cs_response.csv
+    max_age_minutes: 1440
+    field_map: {group: store, time: date, agent: agent, avg_seconds: avg_seconds, consults: consults}
+
+metrics:
+  date_attribution: first_contact
+  day_window: {start: "00:00"}
+  dedupe: {scope: day}
+  required_fields: [channel, group]
+  valid_lead: {filters: []}
+  on_source_failure: hold
+
+reports:
+  - id: fill_social_x
+    type: fill_gap
+    source: social_x
+    crm_source: crm
+    crm_channels: [社媒平台X]
+    group_by: people
+    group_label: 负责人
+    title: "{date_label} 社媒平台X 客资填写情况"
+    header_color: "#C82828"
+    columns: [{label: 留资数}]
+    record_match: true
+  - id: fill_review_y
+    type: fill_gap
+    source: review_y
+    crm_source: crm
+    crm_channels: [点评类平台Y]
+    group_by: stores
+    group_label: 门店
+    title: "{date_label} 点评类平台Y 客资填写情况"
+    header_color: "#E67828"
+    columns: [{kinds: [phone], label: 电话数}, {kinds: [chat], label: 后台咨询数}]
+    total_row: true
+  - id: fill_map_z
+    type: fill_gap
+    source: map_z
+    crm_source: crm
+    crm_channels: [地图平台Z]
+    group_by: stores
+    group_label: 门店
+    title: "{date_label} 地图平台Z 客资填写情况"
+    header_color: "#DC8232"
+    columns: [{label: 客资数}]
+  - id: fill_form_web
+    type: fill_gap
+    source: form_web
+    crm_source: crm
+    crm_channels: [官网表单]
+    group_by: stores
+    group_label: 门店
+    header_color: "#3C8C5A"
+    columns: [{label: 表单数}]
+  - id: reconcile_visits
+    type: verification_vs_visit
+    verification_source: vouchers
+    crm_source: crm
+    group_by: stores
+    group_label: 门店
+    visit_time_field: visit
+    verification_label: 核销
+    visit_label: 到店
+  - id: response_time
+    type: response_time
+    source: cs
+    group_by: stores
+    group_label: 门店
+    threshold_seconds: 180
+
+schedules:
+  morning:
+    cron: "0 9 * * *"
+    data_day: yesterday
+    period_start: month_start
+    caption: 客资填写复核（昨日）
+    reports: [fill_social_x, fill_review_y, fill_map_z, fill_form_web, response_time, reconcile_visits]
+  evening:
+    cron: "0 21 * * *"
+    data_day: today
+    caption: 客资填写情况（今日）
+    reports: [fill_social_x, fill_review_y, fill_map_z, fill_form_web]
+
+recipients:
+  - id: ops_lead
+    name: 运营负责人（示例）
+    target_kind: dm
+    channel: {type: feishu, app_id_env: FEISHU_APP_ID, app_secret_env: FEISHU_APP_SECRET,
+              receive_id_type: open_id, receive_id_env: FEISHU_OPS_LEAD_OPEN_ID}
+    reports: [morning, evening, alerts]
+    format: image
+    evidence: true
+  - id: store_group
+    name: 门店群（示例）
+    target_kind: group
+    channel: {type: wecom_bot, webhook_env: WECOM_STORE_GROUP_WEBHOOK}
+    reports: [evening]
+    report_ids: [fill_review_y, fill_map_z, fill_form_web]
+    format: image+text
+    evidence: false
+  - id: owner
+    name: 老板（示例）
+    target_kind: dm
+    channel: {type: wechat}
+    reports: [morning]
+    format: image
+    evidence: false
+  - id: partner
+    name: 合伙人（示例）
+    target_kind: dm
+    channel: {type: email, host_env: SMTP_HOST, port_env: SMTP_PORT, user_env: SMTP_USER,
+              password_env: SMTP_PASSWORD, to_env: PARTNER_EMAIL}
+    reports: [morning]
+    report_ids: [reconcile_visits]
+    format: image+text
+
+outputs:
+  dir: runs
+  dpi: 160
+  font: {family: Noto Sans CJK SC}
