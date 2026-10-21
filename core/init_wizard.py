@@ -186,6 +186,21 @@ def run(out: Path, answers_file: Path | None = None, templates_dir: Path | None 
         who = ask("alert_recipient", "9/9 平台登录失效/取数失败时，提醒谁（填接收人序号）", "1")
         rcs[int(who) - 1]["reports"].append("alerts")
     cfg["recipients"] = rcs
+
+    # optional module: platform-alert（通用平台预警，见 modules/platform-alert）
+    if ask("want_platform_alert", "附加 是否开启『通用平台预警』（余额/花费/评分/差评/库存…任意指标，y/n）", "n") == "y":
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "platform_alert_wizard", Path(__file__).resolve().parents[1] / "modules/platform-alert/wizard.py")
+        pw = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pw)
+        pa_recipients = [{"name": r["name"], "channel": r["channel"].get("type", "feishu"), "target_kind": r.get("target_kind", "dm")}
+                         for r in rcs]
+        pa_cfg = pw.interview((answers or {}).get("platform_alert") if answers is not None else None, recipients=pa_recipients)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        (out.parent / "platform-alert.yaml").write_text(
+            yaml.safe_dump(pa_cfg, allow_unicode=True, sort_keys=False, width=120), encoding="utf-8")
+        cfg["platform_alert"] = {"config": "platform-alert.yaml"}
     cfg.setdefault("outputs", {"dir": "runs", "dpi": 160, "font": {"family": "Noto Sans CJK SC"}})
 
     out.parent.mkdir(parents=True, exist_ok=True)

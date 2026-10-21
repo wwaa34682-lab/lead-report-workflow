@@ -1,0 +1,21 @@
+# python modules/platform-alert/wizard.py --answers this.yaml --out platform-alert.yaml   （全部为示例值）
+timezone: Asia/Shanghai
+recipient_count: 2
+recipients:
+  - {name: 运营负责人, channel: feishu, target_kind: dm}
+  - {name: 客服群, channel: wecom, target_kind: group}
+platform_count: 1
+platforms:
+  - name: 某点评平台
+    url: https://example.com/merchant
+    login_account: 商家主账号（别名）
+    login_steps: 扫码登录,手机确认
+    account_switch_steps: ""
+    watch_count: 3
+    watches:
+      - {metric: rating, label: 评分, page_field: 门店概览 → 星级, rule: below, threshold: 4.5, recipients: "1"}
+      - {metric: bad_reviews, label: 差评数, page_field: 评价管理 → 昨日差评, rule: above, threshold: 0, recipients: "1,2"}
+      - {metric: leads, label: 咨询数, page_field: 客资中心 → 昨日咨询, rule: change_pct, threshold: 50, direction: down, recipients: "1"}
+check_time: "09:30"
+send_when_not_triggered: n
+login_expired_recipients: "1"
