@@ -32,3 +32,19 @@ recipients:
   - {name: 运营负责人, channel: feishu, target_kind: dm, reports: "morning,evening,alerts", format: image, evidence: y}
   - {name: 门店群, channel: dingtalk, target_kind: group, reports: evening, format: image+text, evidence: n}
   - {name: 老板, channel: wechat, target_kind: dm, reports: morning, format: image, evidence: n}
+want_platform_alert: y
+platform_alert:            # 通用平台预警的回答（接收人沿用上面的，序号同上）
+  timezone: Asia/Shanghai
+  platform_count: 1
+  platforms:
+    - name: 某广告平台
+      url: https://example.com/ads
+      login_account: 投放主账号（别名）
+      login_steps: 扫码登录
+      account_switch_steps: 右上角账户,切换,选代理商子账户
+      watch_count: 1
+      watches:
+        - {metric: balance, label: 余额, page_field: 财务 → 综合余额, rule: days_left, threshold: 4, recipients: "1,3"}
+  check_time: "10:00"
+  send_when_not_triggered: n
+  login_expired_recipients: "1"

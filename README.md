@@ -48,6 +48,12 @@
 | 实时重拉 | 每次运行都重新取数；导出文件/人工读数超过 `max_age_minutes` 直接拒绝，绝不复用上一轮数字 |
 | 登录失效告警 | 平台登录/扫码过期时不当作 0，相关报表暂停，向订阅 `alerts` 的人发提醒 |
 
+## 附加模块
+
+| 模块 | 说明 |
+|---|---|
+| [platform-alert](modules/platform-alert/README.zh.md) | 通用平台预警：任意平台 × 任意指标（余额/可用天数、花费、客资、响应时长、评分、差评、库存、页面任意数），规则支持 低于/高于/可用天数/环比变化%/为0或缺失；询问式向导生成配置，按接收人平台发提醒；含广告余额预警示例 |
+
 ## 平台覆盖（按类别）
 
 适配器按**接入方式**而不是按具体平台实现，所以任何平台都能接：有 API 用 `api`，能导出用 `csv`，都不行用 `browser-manual`（人或 AI 助手在浏览器里只读读数 + 截图），能推送用 `webhook`。
@@ -98,6 +104,7 @@ notifiers/             base 接口 · feishu/lark · wecom_bot · dingtalk · sl
 config/                example.yaml（全注释） · templates/
 docs/                  quickstart · metric-rules · agent-workflow · agent-onboarding · platforms · images/
 examples/              make_fake_data.py · demo.yaml · init-answers.example.yaml · manual-capture.template.yaml
+modules/              附加模块（platform-alert 通用平台预警）
 SKILL.md               给 AI 助手的每日运行说明
 ```
 

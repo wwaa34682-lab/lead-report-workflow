@@ -1,0 +1,39 @@
+# 示例：广告账户余额预警（所有名称/金额均为示例）
+timezone: Asia/Shanghai
+recipients:
+  - {name: 财务负责人, channel: feishu, target_kind: dm, target_env: ALERT_R1_TARGET}
+  - {name: 投放负责人, channel: wecom, target_kind: dm, target_env: ALERT_R2_TARGET}
+  - {name: 店长群, channel: dingtalk, target_kind: group, target_env: ALERT_R3_TARGET}
+platforms:
+  - name: 大众点评
+    url: https://example.com/dianping-ads
+    login_account: 推广通主账号（别名）
+    login_steps: [扫码登录, 手机确认]
+    account_switch_steps: []
+    watches:
+      - metric: balance
+        label: 余额
+        page_field: 推广财务 → 综合推广余额   # 首页余额可能显示 0，以这里为准
+        rule: {type: days_left, threshold: 4}
+        recipients: [财务负责人, 投放负责人, 店长群]
+        templates:
+          days_left: "{platform}当前余额¥{value}，预计{days}天内耗尽，请尽快充值。"
+          ok: "{platform}余额¥{value}，可用约{days}天，暂不需充值。"
+  - name: 小红书
+    url: https://example.com/xhs-juguang
+    login_account: 聚光品牌号（别名）
+    login_steps: [扫码登录]
+    account_switch_steps: [右上角品牌账户, 点击旁边『切换』, 选实际投放的代理商子账户]  # 品牌号可能显示花费 0
+    watches:
+      - metric: balance
+        label: 余额
+        page_field: 账户 → 余额（代理商子账户）
+        rule: {type: days_left, threshold: 4}   # 读数里给 daily_budget 时，余额 < 4×日预算 也会触发
+        recipients: [财务负责人, 投放负责人, 店长群]
+        templates:
+          days_left: "{platform}当前余额¥{value}，预计{days}天内耗尽，请尽快充值。"
+          ok: "{platform}余额¥{value}，可用约{days}天，暂不需充值。"
+schedules: [{cron: "0 10 * * *"}]
+send_when_not_triggered: false
+login_expired_recipients: [投放负责人]
+default_recipients: [财务负责人]
